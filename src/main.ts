@@ -1,101 +1,151 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin } from "obsidian";
-import { DEFAULT_SETTINGS, MyPluginSettings, SampleSettingTab } from "./settings";
+import { MarkdownView, moment, Platform, Plugin, TFile } from "obsidian";
+import { DailyChatInputBar } from "./ui/chat-input-bar";
+import { isDailyNoteFile } from "./daily-note";
+import { buildDailyChatEntry } from "./post-format";
+import {
+	DEFAULT_SETTINGS,
+	DailyChatSettingTab,
+	DailyChatSettings,
+	normalizeSettings,
+} from "./settings";
 
-// Remember to rename these classes and interfaces!
+export default class DailyChatPlugin extends Plugin {
+	settings: DailyChatSettings = DEFAULT_SETTINGS;
+	private inputBars = new Map<MarkdownView, DailyChatInputBar>();
+	private isReady = false;
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+	async onload(): Promise<void> {
+		if (Platform.isMobile) {
+			return;
+		}
 
-	async onload() {
 		await this.loadSettings();
+		this.isReady = true;
 
-		// This creates an icon in the left ribbon.
-		this.addRibbonIcon("dice", "Sample", (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice("This is a notice!");
-		});
+		this.addSettingTab(new DailyChatSettingTab(this.app, this));
 
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText("Status bar text");
-
-		// This adds a simple command that can be triggered anywhere
 		this.addCommand({
-			id: "open-modal-simple",
-			name: "Open modal (simple)",
-			callback: () => {
-				new SampleModal(this.app).open();
-			},
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: "replace-selected",
-			name: "Replace selected content",
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				editor.replaceSelection("Sample editor command");
-			},
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: "open-modal-complex",
-			name: "Open modal (complex)",
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
-
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
+			id: "focus-daily-chat-input",
+			name: "Focus chat input",
+			checkCallback: (checking) => {
+				const hasInput = this.getActiveInputBar() !== null;
+				if (!hasInput) {
+					return false;
 				}
-				return false;
+				if (!checking) {
+					this.getActiveInputBar()?.focus();
+				}
+				return true;
 			},
 		});
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
+		this.app.workspace.onLayoutReady(() => {
+			if (this.isReady) {
+				this.syncInputBars();
+			}
+		});
+		this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.syncInputBars()));
+		this.registerEvent(this.app.workspace.on("file-open", () => this.syncInputBars()));
+		this.registerEvent(this.app.workspace.on("layout-change", () => this.syncInputBars()));
+		this.registerEvent(this.app.vault.on("rename", () => this.syncInputBars()));
+		this.registerEvent(this.app.vault.on("delete", () => this.syncInputBars()));
+		this.register(() => {
+			this.isReady = false;
+			this.clearInputBars();
+		});
+	}
 
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, "click", (evt: MouseEvent) => {
-			new Notice("Click");
+	refreshInputBars(): void {
+		this.syncInputBars();
+	}
+
+	async appendChatEntry(view: MarkdownView, input: string): Promise<void> {
+		const file = view.file;
+		if (!(file instanceof TFile) || !isDailyNoteFile(file, this.settings)) {
+			throw new Error("Open a daily note before posting.");
+		}
+
+		const entry = buildDailyChatEntry({
+			input,
+			postFormatOption: this.settings.postFormatOption,
+			timestamp: moment().toISOString(true),
 		});
 
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log("setInterval"), 5 * 60 * 1000));
+		await this.app.vault.append(file, entry);
 	}
 
-	onunload() {}
-
-	async loadSettings() {
-		this.settings = Object.assign(
-			{},
-			DEFAULT_SETTINGS,
-			(await this.loadData()) as Partial<MyPluginSettings>,
-		);
+	async loadSettings(): Promise<void> {
+		this.settings = normalizeSettings(await this.loadData());
 	}
 
-	async saveSettings() {
+	async saveSettings(): Promise<void> {
 		await this.saveData(this.settings);
-	}
-}
-
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
+		this.refreshInputBars();
 	}
 
-	onOpen() {
-		let { contentEl } = this;
-		contentEl.setText("Woah!");
+	private syncInputBars(): void {
+		const visibleViews = new Set<MarkdownView>();
+
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (!(leaf.view instanceof MarkdownView)) {
+				return;
+			}
+
+			const view = leaf.view;
+			visibleViews.add(view);
+			this.syncInputBarForView(view);
+		});
+
+		for (const view of this.inputBars.keys()) {
+			if (!visibleViews.has(view)) {
+				this.removeInputBar(view);
+			}
+		}
 	}
 
-	onClose() {
-		const { contentEl } = this;
-		contentEl.empty();
+	private syncInputBarForView(view: MarkdownView): void {
+		const file = view.file;
+		const shouldShow = file instanceof TFile && isDailyNoteFile(file, this.settings);
+		const alreadyShown = this.inputBars.has(view);
+
+		if (shouldShow && !alreadyShown) {
+			this.addInputBar(view);
+			return;
+		}
+
+		if (!shouldShow && alreadyShown) {
+			this.removeInputBar(view);
+		}
+	}
+
+	private addInputBar(view: MarkdownView): void {
+		const inputBar = new DailyChatInputBar(this, view);
+		this.addChild(inputBar);
+		this.inputBars.set(view, inputBar);
+	}
+
+	private removeInputBar(view: MarkdownView): void {
+		const inputBar = this.inputBars.get(view);
+		if (!inputBar) {
+			return;
+		}
+
+		this.removeChild(inputBar);
+		this.inputBars.delete(view);
+	}
+
+	private clearInputBars(): void {
+		for (const view of Array.from(this.inputBars.keys())) {
+			this.removeInputBar(view);
+		}
+	}
+
+	private getActiveInputBar(): DailyChatInputBar | null {
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!view) {
+			return null;
+		}
+
+		return this.inputBars.get(view) ?? null;
 	}
 }

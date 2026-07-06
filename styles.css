@@ -1,8 +1,74 @@
-/*
+.daily-chat-view-container {
+	position: relative;
+}
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.daily-chat-view-container .view-content {
+	padding-bottom: 7rem;
+}
 
-If your plugin does not need CSS, delete this file.
+.daily-chat-input-bar {
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	z-index: var(--layer-popover);
+	padding: var(--size-4-2) var(--size-4-3);
+	background: var(--background-primary);
+	border-top: 1px solid var(--background-modifier-border);
+}
 
-*/
+.daily-chat-input-bar__form {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 2.5rem;
+	gap: var(--size-4-2);
+	align-items: end;
+	max-width: 48rem;
+	margin: 0 auto;
+}
+
+.daily-chat-input-bar__textarea {
+	width: 100%;
+	min-height: 2.5rem;
+	max-height: 8rem;
+	padding: var(--size-4-2) var(--size-4-3);
+	resize: vertical;
+	color: var(--text-normal);
+	font: inherit;
+	line-height: var(--line-height-normal);
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+}
+
+.daily-chat-input-bar__textarea:focus {
+	border-color: var(--interactive-accent);
+	box-shadow: 0 0 0 2px var(--background-modifier-border-focus);
+	outline: none;
+}
+
+.daily-chat-input-bar__submit {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 2.5rem;
+	height: 2.5rem;
+	padding: 0;
+	color: var(--text-on-accent);
+	background: var(--interactive-accent);
+	border: 0;
+	border-radius: var(--radius-s);
+}
+
+.daily-chat-input-bar__submit:not(:disabled) {
+	cursor: pointer;
+}
+
+.daily-chat-input-bar__submit:disabled {
+	cursor: default;
+	opacity: 0.45;
+}
+
+.daily-chat-input-bar__submit svg {
+	width: 1.1rem;
+	height: 1.1rem;
+}
