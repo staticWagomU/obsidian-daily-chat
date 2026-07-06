@@ -25,7 +25,7 @@
 	"keywords": [],
 	"license": "0-BSD",
 	"devDependencies": {
-		"@eslint/js": "9.39.2",
+		"@eslint/js": "9.39.4",
 		"@types/node": "^16.11.6",
 		"@vitest/coverage-v8": "^4.0.16",
 		"eslint": "^9.39.2",
